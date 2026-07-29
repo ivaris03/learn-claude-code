@@ -28,7 +28,7 @@ s02 のループは完全に維持される。唯一の変更は、ツール実�
 | ゲート | 役割 | 一致時 |
 |--------|------|--------|
 | 1. 拒否リスト | 常に禁止される操作（`rm -rf /`、`sudo`） | 即座に拒否、実行しない |
-| 2. ルールマッチング | コンテキスト依存の操作（作業ディレクトリ外への読み書き、`rm` ファイル） | ゲート 3 へ |
+| 2. ルールマッチング | コンテキスト依存の操作（作業ディレクトリ外への読み書き、`rm`/`del` ファイル） | ゲート 3 へ |
 | 3. ユーザー承認 | ゲート 2 が一致した場合、ユーザー確認を待機 | ユーザーが許可または拒否を決定 |
 
 3 つのゲートのどれにも一致しない → 直接実行。日常の操作の大部分はこの経路を通る。
@@ -57,6 +57,20 @@ def check_deny_list(command: str) -> str | None:
 **ゲート 2**：ルールマッチング — 「いつユーザーに聞くべきか」を記述する。各ルールはツールとチェック条件を指定する。
 
 ```python
+import re
+
+DESTRUCTIVE_COMMAND_PATTERN = re.compile(
+    r"(?:^|[\s;&|])(?:rm|del|erase|rd|rmdir|remove-item)(?=$|[\s/;&|])",
+    re.IGNORECASE,
+)
+
+def is_potentially_destructive(command: str) -> bool:
+    return (
+        DESTRUCTIVE_COMMAND_PATTERN.search(command) is not None
+        or "> /etc/" in command.lower()
+        or "chmod 777" in command.lower()
+    )
+
 PERMISSION_RULES = [
     {
         "tools": ["read_file", "write_file", "edit_file"],
@@ -65,7 +79,7 @@ PERMISSION_RULES = [
     },
     {
         "tools": ["bash"],
-        "check": lambda args: any(kw in args.get("command", "") for kw in ["rm ", "> /etc/", "chmod 777"]),
+        "check": lambda args: is_potentially_destructive(args.get("command", "")),
         "message": "Potentially destructive command",
     },
 ]
@@ -139,7 +153,7 @@ python s03_permission/code.py
 以下のプロンプトを試してみよう：
 
 1. `Create a file called test.txt in the current directory`（そのまま通過するはず）
-2. `Delete the file test.txt`（bash + rm でゲート 2 が発動）
+2. `Delete the file test.txt`（bash + `rm`/`del` でゲート 2 が発動）
 3. `What files are in the current directory?`（読み取り専用、すべて通過）
 4. `Try to write a file to /etc/something`（作業ディレクトリ外への書き込みでゲート 2 が発動）
 

@@ -27,7 +27,7 @@ Builds on s02 (multi-tool). Usage:
     Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
 """
 
-import os, subprocess
+import os, re, subprocess
 from pathlib import Path
 
 try:
@@ -149,12 +149,25 @@ def check_deny_list(command: str) -> str | None:
 
 
 # Gate 2: Rule matching — context-dependent checks
+DESTRUCTIVE_COMMAND_PATTERN = re.compile(
+    r"(?:^|[\s;&|])(?:rm|del|erase|rd|rmdir|remove-item)(?=$|[\s/;&|])",
+    re.IGNORECASE,
+)
+
+def is_potentially_destructive(command: str) -> bool:
+    return (
+        DESTRUCTIVE_COMMAND_PATTERN.search(command) is not None
+        or "> /etc/" in command.lower()
+        or "chmod 777" in command.lower()
+    )
+
+
 PERMISSION_RULES = [
     {"tools": ["read_file", "write_file", "edit_file"],
      "check": lambda args: not (WORKDIR / args.get("path", "")).resolve().is_relative_to(WORKDIR),
      "message": "Writing outside workspace"},
     {"tools": ["bash"],
-     "check": lambda args: any(kw in args.get("command", "") for kw in ["rm ", "> /etc/", "chmod 777"]),
+     "check": lambda args: is_potentially_destructive(args.get("command", "")),
      "message": "Potentially destructive command"},
 ]
 

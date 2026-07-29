@@ -28,7 +28,7 @@ The three gates correspond to three decisions:
 | Gate | Purpose | On Match |
 |------|---------|----------|
 | 1. Deny List | Permanently forbidden operations (`rm -rf /`, `sudo`) | Denied immediately, not executed |
-| 2. Rule Matching | Context-dependent operations (reading/writing outside workspace, `rm` files) | Passed to Gate 3 |
+| 2. Rule Matching | Context-dependent operations (reading/writing outside workspace, `rm`/`del` files) | Passed to Gate 3 |
 | 3. User Approval | After Gate 2 matches, pauses for user confirmation | User decides allow or deny |
 
 None of the three gates match → execute directly. Most routine operations take this path.
@@ -57,6 +57,20 @@ def check_deny_list(command: str) -> str | None:
 **Gate 2**: Rule matching — describes "when to ask the user." Each rule specifies a tool and a check condition.
 
 ```python
+import re
+
+DESTRUCTIVE_COMMAND_PATTERN = re.compile(
+    r"(?:^|[\s;&|])(?:rm|del|erase|rd|rmdir|remove-item)(?=$|[\s/;&|])",
+    re.IGNORECASE,
+)
+
+def is_potentially_destructive(command: str) -> bool:
+    return (
+        DESTRUCTIVE_COMMAND_PATTERN.search(command) is not None
+        or "> /etc/" in command.lower()
+        or "chmod 777" in command.lower()
+    )
+
 PERMISSION_RULES = [
     {
         "tools": ["read_file", "write_file", "edit_file"],
@@ -65,7 +79,7 @@ PERMISSION_RULES = [
     },
     {
         "tools": ["bash"],
-        "check": lambda args: any(kw in args.get("command", "") for kw in ["rm ", "> /etc/", "chmod 777"]),
+        "check": lambda args: is_potentially_destructive(args.get("command", "")),
         "message": "Potentially destructive command",
     },
 ]
@@ -139,7 +153,7 @@ python s03_permission/code.py
 Try these prompts:
 
 1. `Create a file called test.txt in the current directory` (should pass through)
-2. `Delete the file test.txt` (bash + rm triggers Gate 2)
+2. `Delete the file test.txt` (bash + `rm`/`del` triggers Gate 2)
 3. `What files are in the current directory?` (read-only, all pass)
 4. `Try to write a file to /etc/something` (writing outside workspace triggers Gate 2)
 
