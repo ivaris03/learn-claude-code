@@ -547,21 +547,33 @@ def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
                     inbox = BUS.read_inbox(name)
                     if not inbox:
                         continue
+                    should_resume = False
+                    idle_messages = []
                     for msg in inbox:
-                        if msg.get("type") in ("shutdown_request", "plan_approval_response"):
+                        msg_type = msg.get("type")
+                        if msg_type in ("shutdown_request", "plan_approval_response"):
                             should_stop = handle_inbox_message(name, msg, messages)
                             if should_stop:
                                 shutdown_requested = True
                                 break
+                            if msg_type == "plan_approval_response":
+                                should_resume = True
                         else:
-                            non_protocol.append(msg)
+                            idle_messages.append(msg)
                     if shutdown_requested:
                         break
-                    if non_protocol:
-                        inbox_json = json.dumps(non_protocol)
+                    if idle_messages:
+                        inbox_json = json.dumps(idle_messages)
                         messages.append({"role": "user",
                             "content": "<inbox>" + inbox_json + "</inbox>"})
+                        should_resume = True
+                    if should_resume:
                         break  # back to LLM turn with new messages
+
+                # A non-tool response has no tool calls to execute. Start a new
+                # LLM turn after inbox activity instead of appending an empty
+                # tool_result user message for the previous response.
+                continue
 
             # Execute tool calls
             results = []
